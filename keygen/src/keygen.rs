@@ -29,6 +29,7 @@ enum Pbkdf2Backend {
     CommonCrypto,
     Soft,
     Fused,
+    FusedBip32, // fused PBKDF2 + lean BIP32 (skips 4 unnecessary scalar multiplies)
 }
 
 extern "C" {
@@ -78,7 +79,7 @@ fn derive_seed(mnemonic: &Mnemonic, backend: Pbkdf2Backend) -> [u8; 64] {
             out.copy_from_slice(seed.as_bytes());
             out
         }
-        Pbkdf2Backend::Fused => {
+        Pbkdf2Backend::Fused | Pbkdf2Backend::FusedBip32 => {
             let mut seed = [0u8; 64];
             fused_pbkdf2::derive_seed_fused(mnemonic.phrase().as_bytes(), &mut seed);
             seed
@@ -339,7 +340,7 @@ fn build_patterns() -> HashSet<([u8; 4], [u8; 4])> {
 fn main() {
     let default_num_threads = num_cpus::get().to_string();
     let pbkdf2_values = {
-        let mut v = vec!["ring", "soft", "fused"];
+        let mut v = vec!["ring", "soft", "fused", "fused-bip32"];
         #[cfg(target_os = "macos")]
         v.push("commoncrypto");
         v
@@ -369,7 +370,7 @@ fn main() {
                 .long("pbkdf2")
                 .value_name("BACKEND")
                 .takes_value(true)
-                .default_value("fused")
+                .default_value("fused-bip32")
                 .possible_values(&pbkdf2_values)
                 .help("PBKDF2 implementation: ring (BoringSSL asm), commoncrypto (macOS), soft (pure Rust)"),
         )
@@ -383,6 +384,7 @@ fn main() {
         "commoncrypto" => Pbkdf2Backend::CommonCrypto,
         "soft" => Pbkdf2Backend::Soft,
         "fused" => Pbkdf2Backend::Fused,
+        "fused-bip32" => Pbkdf2Backend::FusedBip32,
         _ => unreachable!(),
     };
     let backend_name = matches.get_one::<String>("pbkdf2").unwrap().clone();
@@ -418,7 +420,10 @@ fn main() {
             thread::spawn(move || {
                 let mnemonic_type = MnemonicType::Words24;
                 let language = Language::English;
-                let derivation_path = Some(DerivationPath::default());
+                // m/44'/501'/0'/0' — Ledger-compatible path
+                let derivation_path = Some(
+                    DerivationPath::from_absolute_path_str("m/44'/501'/0'/0'").unwrap()
+                );
                 let mut bs58_buf = [0u8; 64];
                 let mut local_count = 0u64;
 
@@ -439,12 +444,18 @@ fn main() {
                     local_count += 1;
 
                     let mnemonic = Mnemonic::new(mnemonic_type, language);
-                    let seed = derive_seed(&mnemonic, backend);
-                    let keypair = keypair_from_seed_and_derivation_path(
-                        &seed,
-                        derivation_path.clone(),
-                    )
-                    .unwrap();
+                    let keypair = if matches!(backend, Pbkdf2Backend::FusedBip32) {
+                        // Combined pipeline: fused PBKDF2 + lean BIP32
+                        // Skips 4 unnecessary scalar multiplies in intermediate BIP32 levels
+                        fused_pbkdf2::derive_keypair_fused(mnemonic.phrase().as_bytes())
+                    } else {
+                        let seed = derive_seed(&mnemonic, backend);
+                        keypair_from_seed_and_derivation_path(
+                            &seed,
+                            derivation_path.clone(),
+                        )
+                        .unwrap()
+                    };
 
                     // Fast suffix check on raw bytes — 32 multiply-mods, no base58 encode
                     let pubkey = keypair.pubkey();
@@ -520,6 +531,61 @@ mod tests {
                 assert_eq!(bip39_seed.as_bytes(), &seed,
                     "Seed mismatch for backend {:?}, phrase: {}", backend as u8, mnemonic.phrase());
             }
+        }
+    }
+
+    #[test]
+    fn fused_bip32_matches_standard() {
+        use solana_signer::Signer;
+
+        // First: verify our HMAC-SHA512 matches reference
+        {
+            use hmac::{Hmac, Mac};
+            use sha2::Sha512;
+            for data_len in [12, 37, 64, 128, 200] {
+                let key = b"test key material for hmac";
+                let data: Vec<u8> = (0..data_len).map(|i| i as u8).collect();
+                let mut ref_mac = <Hmac<Sha512>>::new_from_slice(key).unwrap();
+                ref_mac.update(&data);
+                let ref_result = ref_mac.finalize().into_bytes();
+                let our_result = unsafe { fused_pbkdf2::hmac_sha512_for_test(key, &data) };
+                assert_eq!(&ref_result[..], &our_result[..],
+                    "HMAC-SHA512 mismatch for data_len={}", data_len);
+            }
+        }
+
+        // Compare BIP32 intermediate values at each level — single mnemonic
+        {
+            let mnemonic = Mnemonic::new(MnemonicType::Words24, Language::English);
+            let seed = derive_seed(&mnemonic, Pbkdf2Backend::Fused);
+
+            // Reference: step through ed25519-dalek-bip32
+            // m/44'/501'/0'/0' — Ledger-compatible (4 derivation levels)
+            let ext0 = ed25519_dalek_bip32::ExtendedSigningKey::from_seed(&seed).unwrap();
+            let ext1 = ext0.derive_child(ed25519_dalek_bip32::ChildIndex::Hardened(44)).unwrap();
+            let ext2 = ext1.derive_child(ed25519_dalek_bip32::ChildIndex::Hardened(501)).unwrap();
+            let ext3 = ext2.derive_child(ed25519_dalek_bip32::ChildIndex::Hardened(0)).unwrap();
+            let ext4 = ext3.derive_child(ed25519_dalek_bip32::ChildIndex::Hardened(0)).unwrap();
+            let ref_levels: Vec<[u8; 32]> = vec![
+                ext0.signing_key.to_bytes(),
+                ext1.signing_key.to_bytes(),
+                ext2.signing_key.to_bytes(),
+                ext3.signing_key.to_bytes(),
+                ext4.signing_key.to_bytes(),
+            ];
+
+            let our_levels = unsafe { fused_pbkdf2::bip32_debug(&seed) };
+            for (i, (r, o)) in ref_levels.iter().zip(our_levels.iter()).enumerate() {
+                assert_eq!(r, o, "BIP32 level {} secret mismatch\n  ref: {:02x?}\n  our: {:02x?}", i, r, o);
+            }
+
+            // Also verify final pubkey — using m/44'/501'/0'/0'
+            let full_path = DerivationPath::from_absolute_path_str("m/44'/501'/0'/0'").unwrap();
+            let kp_std = keypair_from_seed_and_derivation_path(
+                &seed, Some(full_path),
+            ).unwrap();
+            let kp_fused = solana_keypair::Keypair::new_from_array(*our_levels.last().unwrap());
+            assert_eq!(kp_std.pubkey(), kp_fused.pubkey(), "Final pubkey mismatch");
         }
     }
 

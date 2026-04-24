@@ -379,6 +379,169 @@ pub unsafe fn pbkdf2_sha512(password: &[u8], salt: &[u8], iterations: u32, outpu
     }
 }
 
+// ── HMAC-SHA512 (for BIP32) ──
+
+/// HMAC-SHA512 using hardware SHA-512. Returns 64-byte MAC as [u64; 8].
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "sha3")]
+unsafe fn hmac_sha512(key: &[u8], data: &[u8]) -> [u8; 64] {
+    // Derive HMAC key (hash if > 128 bytes)
+    let mut padded_key = [0u8; 128];
+    if key.len() > 128 {
+        let hashed = sha512_hash(key);
+        for i in 0..8 {
+            padded_key[i * 8..(i + 1) * 8].copy_from_slice(&hashed[i].to_be_bytes());
+        }
+    } else {
+        padded_key[..key.len()].copy_from_slice(key);
+    }
+
+    // Inner hash: SHA-512(inner_pad || data)
+    let mut inner_pad = [0u8; 128];
+    for i in 0..128 { inner_pad[i] = padded_key[i] ^ 0x36; }
+    let mut state = IV;
+    sha512_compress(&mut state, &inner_pad);
+
+    // Process data blocks
+    let mut offset = 0;
+    while offset + 128 <= data.len() {
+        sha512_compress(&mut state, &*(data.as_ptr().add(offset) as *const [u8; 128]));
+        offset += 128;
+    }
+    let remaining = data.len() - offset;
+    let total_len = (128 + data.len()) as u128 * 8;
+    let mut block = [0u8; 128];
+    block[..remaining].copy_from_slice(&data[offset..]);
+    block[remaining] = 0x80;
+    if remaining < 112 {
+        block[112..128].copy_from_slice(&total_len.to_be_bytes());
+        sha512_compress(&mut state, &block);
+    } else {
+        sha512_compress(&mut state, &block);
+        block = [0u8; 128];
+        block[112..128].copy_from_slice(&total_len.to_be_bytes());
+        sha512_compress(&mut state, &block);
+    }
+    let inner_hash = state;
+
+    // Outer hash: SHA-512(outer_pad || inner_hash)
+    let mut outer_pad = [0u8; 128];
+    for i in 0..128 { outer_pad[i] = padded_key[i] ^ 0x5c; }
+    state = IV;
+    sha512_compress(&mut state, &outer_pad);
+
+    let mut outer_block = [0u8; 128];
+    for i in 0..8 {
+        outer_block[i * 8..(i + 1) * 8].copy_from_slice(&inner_hash[i].to_be_bytes());
+    }
+    outer_block[64] = 0x80;
+    let outer_len: u128 = (128 + 64) * 8;
+    outer_block[112..128].copy_from_slice(&outer_len.to_be_bytes());
+    sha512_compress(&mut state, &outer_block);
+
+    let mut output = [0u8; 64];
+    for i in 0..8 {
+        output[i * 8..(i + 1) * 8].copy_from_slice(&state[i].to_be_bytes());
+    }
+    output
+}
+
+/// Test-only wrapper for hmac_sha512
+#[cfg(all(target_arch = "aarch64", test))]
+pub unsafe fn hmac_sha512_for_test(key: &[u8], data: &[u8]) -> [u8; 64] {
+    hmac_sha512(key, data)
+}
+
+/// Test-only: returns intermediate secret bytes at each BIP32 level
+#[cfg(all(target_arch = "aarch64", test))]
+pub unsafe fn bip32_debug(seed: &[u8; 64]) -> Vec<[u8; 32]> {
+    let mut levels = Vec::new();
+    let result = hmac_sha512(b"ed25519 seed", seed);
+    let mut secret = [0u8; 32];
+    let mut chain_code = [0u8; 32];
+    secret.copy_from_slice(&result[..32]);
+    chain_code.copy_from_slice(&result[32..]);
+    levels.push(secret);
+
+    for &index in &[44u32, 501, 0, 0] {
+        let index_bits = index | 0x80000000;
+        let mut data = [0u8; 37];
+        data[0] = 0x00;
+        data[1..33].copy_from_slice(&secret);
+        data[33..37].copy_from_slice(&index_bits.to_be_bytes());
+        let result = hmac_sha512(&chain_code, &data);
+        secret.copy_from_slice(&result[..32]);
+        chain_code.copy_from_slice(&result[32..]);
+        levels.push(secret);
+    }
+    levels
+}
+
+// ── Lean BIP32 derivation (avoids 4 unnecessary scalar multiplies) ──
+
+/// BIP32 ed25519 derivation using hardware SHA-512 HMAC.
+/// Only computes the public key (scalar multiply) once at the end,
+/// instead of at every intermediate derivation level.
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "sha3")]
+unsafe fn bip32_derive_raw(seed: &[u8; 64], path: &[(u32, bool)]) -> [u8; 32] {
+    // from_seed: HMAC-SHA512("ed25519 seed", seed) → (secret, chain_code)
+    let result = hmac_sha512(b"ed25519 seed", seed);
+    let mut secret = [0u8; 32];
+    let mut chain_code = [0u8; 32];
+    secret.copy_from_slice(&result[..32]);
+    chain_code.copy_from_slice(&result[32..]);
+
+    // derive_child for each path component — raw bytes only, no scalar multiply
+    for &(index, _hardened) in path {
+        let index_bits = index | 0x80000000; // hardened
+        let mut data = [0u8; 37]; // 1 + 32 + 4
+        data[0] = 0x00;
+        data[1..33].copy_from_slice(&secret);
+        data[33..37].copy_from_slice(&index_bits.to_be_bytes());
+
+        let result = hmac_sha512(&chain_code, &data);
+        secret.copy_from_slice(&result[..32]);
+        chain_code.copy_from_slice(&result[32..]);
+    }
+
+    secret
+}
+
+/// Full keypair derivation: fused PBKDF2 → lean BIP32 → Keypair.
+/// Combines HW-accelerated PBKDF2 with overhead-free BIP32.
+pub fn derive_keypair_fused(mnemonic_phrase: &[u8]) -> solana_keypair::Keypair {
+    let mut seed = [0u8; 64];
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        if std::arch::is_aarch64_feature_detected!("sha3") {
+            unsafe {
+                pbkdf2_sha512(mnemonic_phrase, b"mnemonic", 2048, &mut seed);
+                // m/44'/501'/0'/0' (Ledger-compatible, matches --derivation-path default)
+                let secret = bip32_derive_raw(&seed, &[
+                    (44, true), (501, true), (0, true), (0, true),
+                ]);
+                return solana_keypair::Keypair::new_from_array(secret);
+            }
+        }
+    }
+
+    // Fallback
+    ring::pbkdf2::derive(
+        ring::pbkdf2::PBKDF2_HMAC_SHA512,
+        std::num::NonZeroU32::new(2048).unwrap(),
+        b"mnemonic",
+        mnemonic_phrase,
+        &mut seed,
+    );
+    solana_keypair::seed_derivable::keypair_from_seed_and_derivation_path(
+        &seed,
+        Some(solana_derivation_path::DerivationPath::default()),
+    )
+    .unwrap()
+}
+
 /// Public entry point with runtime SHA-512 hardware detection.
 pub fn derive_seed_fused(password: &[u8], output: &mut [u8; 64]) {
     #[cfg(target_arch = "aarch64")]
