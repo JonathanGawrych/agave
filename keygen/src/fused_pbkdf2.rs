@@ -511,14 +511,12 @@ unsafe fn bip32_derive_raw(seed: &[u8; 64], path: &[(u32, bool)]) -> [u8; 32] {
 /// Full keypair derivation: fused PBKDF2 → lean BIP32 → Keypair.
 /// Combines HW-accelerated PBKDF2 with overhead-free BIP32.
 pub fn derive_keypair_fused(mnemonic_phrase: &[u8]) -> solana_keypair::Keypair {
-    let mut seed = [0u8; 64];
-
     #[cfg(target_arch = "aarch64")]
     {
         if std::arch::is_aarch64_feature_detected!("sha3") {
             unsafe {
+                let mut seed = [0u8; 64];
                 pbkdf2_sha512(mnemonic_phrase, b"mnemonic", 2048, &mut seed);
-                // m/44'/501'/0'/0' (Ledger-compatible, matches --derivation-path default)
                 let secret = bip32_derive_raw(&seed, &[
                     (44, true), (501, true), (0, true), (0, true),
                 ]);
@@ -528,6 +526,7 @@ pub fn derive_keypair_fused(mnemonic_phrase: &[u8]) -> solana_keypair::Keypair {
     }
 
     // Fallback
+    let mut seed = [0u8; 64];
     ring::pbkdf2::derive(
         ring::pbkdf2::PBKDF2_HMAC_SHA512,
         std::num::NonZeroU32::new(2048).unwrap(),
@@ -537,7 +536,7 @@ pub fn derive_keypair_fused(mnemonic_phrase: &[u8]) -> solana_keypair::Keypair {
     );
     solana_keypair::seed_derivable::keypair_from_seed_and_derivation_path(
         &seed,
-        Some(solana_derivation_path::DerivationPath::default()),
+        Some(solana_derivation_path::DerivationPath::from_absolute_path_str("m/44'/501'/0'/0'").unwrap()),
     )
     .unwrap()
 }

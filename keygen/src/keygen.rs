@@ -445,8 +445,6 @@ fn main() {
 
                     let mnemonic = Mnemonic::new(mnemonic_type, language);
                     let keypair = if matches!(backend, Pbkdf2Backend::FusedBip32) {
-                        // Combined pipeline: fused PBKDF2 + lean BIP32
-                        // Skips 4 unnecessary scalar multiplies in intermediate BIP32 levels
                         fused_pbkdf2::derive_keypair_fused(mnemonic.phrase().as_bytes())
                     } else {
                         let seed = derive_seed(&mnemonic, backend);
@@ -585,7 +583,11 @@ mod tests {
                 &seed, Some(full_path),
             ).unwrap();
             let kp_fused = solana_keypair::Keypair::new_from_array(*our_levels.last().unwrap());
-            assert_eq!(kp_std.pubkey(), kp_fused.pubkey(), "Final pubkey mismatch");
+            assert_eq!(kp_std.pubkey(), kp_fused.pubkey(), "Final pubkey mismatch (new_from_array)");
+
+            // Verify derive_keypair_fused matches too
+            let kp_full_fused = fused_pbkdf2::derive_keypair_fused(mnemonic.phrase().as_bytes());
+            assert_eq!(kp_std.pubkey(), kp_full_fused.pubkey(), "Final pubkey mismatch (derive_keypair_fused)");
         }
     }
 
