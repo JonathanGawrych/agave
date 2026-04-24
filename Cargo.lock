@@ -8690,6 +8690,7 @@ dependencies = [
  "clap 3.2.23",
  "dirs-next",
  "num_cpus",
+ "ring",
  "serde_json",
  "solana-bls-signatures",
  "solana-clap-v3-utils",
