@@ -148,7 +148,7 @@ macro_rules! sha512_rounds {
 // ── SHA-512 compression (byte-array block, for initial blocks) ──
 
 #[cfg(target_arch = "aarch64")]
-#[target_feature(enable = "sha3")]
+#[inline(always)]
 unsafe fn sha512_compress(state: &mut [u64; 8], block: &[u8; 128]) {
     let mut ab = vld1q_u64(state.as_ptr());
     let mut cd = vld1q_u64(state.as_ptr().add(2));
@@ -182,7 +182,7 @@ unsafe fn sha512_compress(state: &mut [u64; 8], block: &[u8; 128]) {
 // ── SHA-512 compression (u64 words, no byte-swap — for PBKDF2 inner loop) ──
 
 #[cfg(target_arch = "aarch64")]
-#[target_feature(enable = "sha3")]
+#[inline(always)]
 unsafe fn sha512_compress_u64(state: &mut [u64; 8], words: &[u64; 16]) {
     let mut ab = vld1q_u64(state.as_ptr());
     let mut cd = vld1q_u64(state.as_ptr().add(2));
@@ -215,7 +215,7 @@ unsafe fn sha512_compress_u64(state: &mut [u64; 8], words: &[u64; 16]) {
 // ── SHA-512 full hash (for hashing keys > 128 bytes) ──
 
 #[cfg(target_arch = "aarch64")]
-#[target_feature(enable = "sha3")]
+#[inline(always)]
 unsafe fn sha512_hash(data: &[u8]) -> [u64; 8] {
     let mut state = IV;
     let mut offset = 0;
