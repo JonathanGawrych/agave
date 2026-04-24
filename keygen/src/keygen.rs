@@ -1,4 +1,7 @@
 #![allow(clippy::arithmetic_side_effects)]
+
+mod fused_pbkdf2;
+
 use {
     bip39::{Language, Mnemonic, MnemonicType},
     clap::{Arg, Command, value_parser},
@@ -25,6 +28,7 @@ enum Pbkdf2Backend {
     #[cfg(target_os = "macos")]
     CommonCrypto,
     Soft,
+    Fused,
 }
 
 extern "C" {
@@ -73,6 +77,11 @@ fn derive_seed(mnemonic: &Mnemonic, backend: Pbkdf2Backend) -> [u8; 64] {
             let mut out = [0u8; 64];
             out.copy_from_slice(seed.as_bytes());
             out
+        }
+        Pbkdf2Backend::Fused => {
+            let mut seed = [0u8; 64];
+            fused_pbkdf2::derive_seed_fused(mnemonic.phrase().as_bytes(), &mut seed);
+            seed
         }
     }
 }
@@ -330,7 +339,7 @@ fn build_patterns() -> HashSet<([u8; 4], [u8; 4])> {
 fn main() {
     let default_num_threads = num_cpus::get().to_string();
     let pbkdf2_values = {
-        let mut v = vec!["ring", "soft"];
+        let mut v = vec!["ring", "soft", "fused"];
         #[cfg(target_os = "macos")]
         v.push("commoncrypto");
         v
@@ -360,7 +369,7 @@ fn main() {
                 .long("pbkdf2")
                 .value_name("BACKEND")
                 .takes_value(true)
-                .default_value("ring")
+                .default_value("fused")
                 .possible_values(&pbkdf2_values)
                 .help("PBKDF2 implementation: ring (BoringSSL asm), commoncrypto (macOS), soft (pure Rust)"),
         )
@@ -373,6 +382,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         "commoncrypto" => Pbkdf2Backend::CommonCrypto,
         "soft" => Pbkdf2Backend::Soft,
+        "fused" => Pbkdf2Backend::Fused,
         _ => unreachable!(),
     };
     let backend_name = matches.get_one::<String>("pbkdf2").unwrap().clone();
@@ -498,12 +508,20 @@ mod tests {
     use bip39::Seed;
 
     #[test]
-    fn ring_seed_matches_bip39() {
+    fn all_backends_match_bip39() {
+        let backends = [
+            Pbkdf2Backend::Ring,
+            Pbkdf2Backend::Soft,
+            Pbkdf2Backend::Fused,
+        ];
         for _ in 0..10 {
             let mnemonic = Mnemonic::new(MnemonicType::Words24, Language::English);
             let bip39_seed = Seed::new(&mnemonic, "");
-            let ring_seed = derive_seed(&mnemonic);
-            assert_eq!(bip39_seed.as_bytes(), &ring_seed, "Seeds must match for phrase: {}", mnemonic.phrase());
+            for &backend in &backends {
+                let seed = derive_seed(&mnemonic, backend);
+                assert_eq!(bip39_seed.as_bytes(), &seed,
+                    "Seed mismatch for backend {:?}, phrase: {}", backend as u8, mnemonic.phrase());
+            }
         }
     }
 
