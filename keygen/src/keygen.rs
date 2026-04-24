@@ -422,23 +422,21 @@ fn main() {
                 let mut bs58_buf = [0u8; 64];
                 let mut local_count = 0u64;
 
+                const BATCH: u64 = 8192;
                 loop {
-                    if local_count % 1024 == 0 {
+                    if local_count % BATCH == 0 {
                         if done.load(Ordering::Relaxed) { break; }
-                    }
-                    local_count += 1;
-
-                    if local_count % 1024 == 0 {
-                        let attempt = attempts.fetch_add(1024, Ordering::Relaxed);
-                        if (attempt / 1_000_000) != ((attempt + 1024) / 1_000_000) {
+                        let attempt = attempts.fetch_add(BATCH, Ordering::Relaxed);
+                        if (attempt / 1_000_000) != ((attempt + BATCH) / 1_000_000) {
                             println!(
                                 "Searched {} keypairs in {}s. {} matches found.",
-                                attempt + 1024,
+                                attempt + BATCH,
                                 start.elapsed().as_secs(),
                                 found.load(Ordering::Relaxed),
                             );
                         }
                     }
+                    local_count += 1;
 
                     let mnemonic = Mnemonic::new(mnemonic_type, language);
                     let seed = derive_seed(&mnemonic, backend);

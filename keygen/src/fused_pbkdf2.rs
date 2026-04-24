@@ -109,6 +109,30 @@ macro_rules! sha512_round2 {
 }
 
 #[cfg(target_arch = "aarch64")]
+macro_rules! sha512_schedule_round16 {
+    ($ab:ident,$cd:ident,$ef:ident,$gh:ident,
+     $s0:ident,$s1:ident,$s2:ident,$s3:ident,
+     $s4:ident,$s5:ident,$s6:ident,$s7:ident, $t:expr) => {
+        $s0 = vsha512su1q_u64(vsha512su0q_u64($s0, $s1), $s7, vextq_u64($s4, $s5, 1));
+        sha512_round2!($ab, $cd, $ef, $gh, $s0, $t);
+        $s1 = vsha512su1q_u64(vsha512su0q_u64($s1, $s2), $s0, vextq_u64($s5, $s6, 1));
+        sha512_round2!($gh, $ab, $cd, $ef, $s1, $t + 2);
+        $s2 = vsha512su1q_u64(vsha512su0q_u64($s2, $s3), $s1, vextq_u64($s6, $s7, 1));
+        sha512_round2!($ef, $gh, $ab, $cd, $s2, $t + 4);
+        $s3 = vsha512su1q_u64(vsha512su0q_u64($s3, $s4), $s2, vextq_u64($s7, $s0, 1));
+        sha512_round2!($cd, $ef, $gh, $ab, $s3, $t + 6);
+        $s4 = vsha512su1q_u64(vsha512su0q_u64($s4, $s5), $s3, vextq_u64($s0, $s1, 1));
+        sha512_round2!($ab, $cd, $ef, $gh, $s4, $t + 8);
+        $s5 = vsha512su1q_u64(vsha512su0q_u64($s5, $s6), $s4, vextq_u64($s1, $s2, 1));
+        sha512_round2!($gh, $ab, $cd, $ef, $s5, $t + 10);
+        $s6 = vsha512su1q_u64(vsha512su0q_u64($s6, $s7), $s5, vextq_u64($s2, $s3, 1));
+        sha512_round2!($ef, $gh, $ab, $cd, $s6, $t + 12);
+        $s7 = vsha512su1q_u64(vsha512su0q_u64($s7, $s0), $s6, vextq_u64($s3, $s4, 1));
+        sha512_round2!($cd, $ef, $gh, $ab, $s7, $t + 14);
+    };
+}
+
+#[cfg(target_arch = "aarch64")]
 macro_rules! sha512_rounds {
     ($ab:ident, $cd:ident, $ef:ident, $gh:ident,
      $s0:ident, $s1:ident, $s2:ident, $s3:ident,
@@ -122,24 +146,11 @@ macro_rules! sha512_rounds {
         sha512_round2!($ef, $gh, $ab, $cd, $s6, 12);
         sha512_round2!($cd, $ef, $gh, $ab, $s7, 14);
 
+        // Rounds 16-79: loop (4 iterations × 16 rounds). Kept as loop to avoid
+        // I-cache pressure from the fully inlined PBKDF2 function.
         let mut t = 16usize;
         while t < 80 {
-            $s0 = vsha512su1q_u64(vsha512su0q_u64($s0, $s1), $s7, vextq_u64($s4, $s5, 1));
-            sha512_round2!($ab, $cd, $ef, $gh, $s0, t);
-            $s1 = vsha512su1q_u64(vsha512su0q_u64($s1, $s2), $s0, vextq_u64($s5, $s6, 1));
-            sha512_round2!($gh, $ab, $cd, $ef, $s1, t + 2);
-            $s2 = vsha512su1q_u64(vsha512su0q_u64($s2, $s3), $s1, vextq_u64($s6, $s7, 1));
-            sha512_round2!($ef, $gh, $ab, $cd, $s2, t + 4);
-            $s3 = vsha512su1q_u64(vsha512su0q_u64($s3, $s4), $s2, vextq_u64($s7, $s0, 1));
-            sha512_round2!($cd, $ef, $gh, $ab, $s3, t + 6);
-            $s4 = vsha512su1q_u64(vsha512su0q_u64($s4, $s5), $s3, vextq_u64($s0, $s1, 1));
-            sha512_round2!($ab, $cd, $ef, $gh, $s4, t + 8);
-            $s5 = vsha512su1q_u64(vsha512su0q_u64($s5, $s6), $s4, vextq_u64($s1, $s2, 1));
-            sha512_round2!($gh, $ab, $cd, $ef, $s5, t + 10);
-            $s6 = vsha512su1q_u64(vsha512su0q_u64($s6, $s7), $s5, vextq_u64($s2, $s3, 1));
-            sha512_round2!($ef, $gh, $ab, $cd, $s6, t + 12);
-            $s7 = vsha512su1q_u64(vsha512su0q_u64($s7, $s0), $s6, vextq_u64($s3, $s4, 1));
-            sha512_round2!($cd, $ef, $gh, $ab, $s7, t + 14);
+            sha512_schedule_round16!($ab,$cd,$ef,$gh,$s0,$s1,$s2,$s3,$s4,$s5,$s6,$s7, t);
             t += 16;
         }
     };
@@ -330,16 +341,15 @@ pub unsafe fn pbkdf2_sha512(password: &[u8], salt: &[u8], iterations: u32, outpu
     let mut acc = u;
 
     // Step 4: PBKDF2 iterations 2..iterations
-    // Inner block: [U as u64s | padding]
-    // Total inner length: 128 + 64 = 192 bytes = 1536 bits
-    let inner_loop_len: u128 = 192 * 8;
-    let mut inner_block_template = [0u64; 16];
-    inner_block_template[8] = 0x8000000000000000;
-    inner_block_template[15] = inner_loop_len as u64;
+    // Persistent word arrays — only first 8 words change per iteration,
+    // padding words 8-15 are constant.
+    let mut inner_words = [0u64; 16];
+    inner_words[8] = 0x8000000000000000;
+    inner_words[15] = 192 * 8; // 1536 bits
+    let mut outer_words = inner_words; // same padding structure
 
     for _ in 1..iterations {
         // Inner hash: compress(inner_state, U || padding)
-        let mut inner_words = inner_block_template;
         inner_words[0] = u[0]; inner_words[1] = u[1];
         inner_words[2] = u[2]; inner_words[3] = u[3];
         inner_words[4] = u[4]; inner_words[5] = u[5];
@@ -347,14 +357,12 @@ pub unsafe fn pbkdf2_sha512(password: &[u8], salt: &[u8], iterations: u32, outpu
 
         state = inner_state;
         sha512_compress_u64(&mut state, &inner_words);
-        let ih = state;
 
         // Outer hash: compress(outer_state, inner_hash || padding)
-        let mut outer_words = outer_block_template;
-        outer_words[0] = ih[0]; outer_words[1] = ih[1];
-        outer_words[2] = ih[2]; outer_words[3] = ih[3];
-        outer_words[4] = ih[4]; outer_words[5] = ih[5];
-        outer_words[6] = ih[6]; outer_words[7] = ih[7];
+        outer_words[0] = state[0]; outer_words[1] = state[1];
+        outer_words[2] = state[2]; outer_words[3] = state[3];
+        outer_words[4] = state[4]; outer_words[5] = state[5];
+        outer_words[6] = state[6]; outer_words[7] = state[7];
 
         state = outer_state;
         sha512_compress_u64(&mut state, &outer_words);
