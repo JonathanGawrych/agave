@@ -474,11 +474,12 @@ fn main() {
                         if bench_secs.is_none() {
                             let phrase = mnemonic.phrase();
                             let divider = "=".repeat(phrase.len());
+                            let pk = keypair.pubkey().to_string();
                             println!(
-                                "{divider}\nFound matching key {}\n\
+                                "{divider}\nFound matching key {}...{} ({})\n\
                                  \nSave this seed phrase to recover your new keypair:\n\
                                  {phrase}\n{divider}",
-                                keypair.pubkey(),
+                                &pk[..4], &pk[pk.len()-4..], pk,
                             );
                         }
                     }
