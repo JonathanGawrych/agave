@@ -216,12 +216,12 @@ fn bs58_safe(s: &str) -> String {
         .collect()
 }
 
-/// Generate all leet variants. lock_first=true for prefix mode (first char unchanged).
-fn leet_expand(word: &str, lock_first: bool) -> Vec<String> {
+/// Generate all leet variants. First character is never substituted (locked for readability).
+fn leet_expand(word: &str) -> Vec<String> {
     let safe = bs58_safe(word);
     let mut variants = vec![String::new()];
     for (i, ch) in safe.chars().enumerate() {
-        let sub = if !(lock_first && i == 0) {
+        let sub = if i > 0 {
             LEET_MAP.iter().find(|(from, _)| *from == ch).map(|(_, to)| *to)
         } else {
             None
@@ -266,11 +266,11 @@ fn build_patterns() -> HashSet<([u8; 4], [u8; 4])> {
 
     // Hollow Knight pairs
     for (p, s) in HK_PAIRS {
-        cross_into(&mut patterns, &leet_expand(p, true), &leet_expand(s, false));
+        cross_into(&mut patterns, &leet_expand(p), &leet_expand(s));
     }
 
     // BUG{1-9}:NiTE (prefix is literal, not leet-expanded)
-    let nite_suffixes = leet_expand("NiTE", false);
+    let nite_suffixes = leet_expand("NiTE");
     for d in 1..=9u8 {
         let bug = vec![format!("BUG{d}")];
         cross_into(&mut patterns, &bug, &nite_suffixes);
@@ -280,25 +280,25 @@ fn build_patterns() -> HashSet<([u8; 4], [u8; 4])> {
     for (first, last) in NAME_PAIRS {
         for fp in first.prefix_forms {
             for ls in last.suffix_forms {
-                cross_into(&mut patterns, &leet_expand(fp, true), &leet_expand(ls, false));
+                cross_into(&mut patterns, &leet_expand(fp), &leet_expand(ls));
             }
         }
         for lp in last.prefix_forms {
             for fs in first.suffix_forms {
-                cross_into(&mut patterns, &leet_expand(lp, true), &leet_expand(fs, false));
+                cross_into(&mut patterns, &leet_expand(lp), &leet_expand(fs));
             }
         }
     }
 
     // Self-repeats
     for w in SELF_REPEATS {
-        cross_into(&mut patterns, &leet_expand(w, true), &leet_expand(w, false));
+        cross_into(&mut patterns, &leet_expand(w), &leet_expand(w));
     }
 
     // Landon specials: LAND × special words
-    let land_prefixes = leet_expand("LAND", true);
+    let land_prefixes = leet_expand("LAND");
     for s in LANDON_SPECIALS {
-        cross_into(&mut patterns, &land_prefixes, &leet_expand(s, false));
+        cross_into(&mut patterns, &land_prefixes, &leet_expand(s));
     }
 
     // Pre-expand all words as prefix and suffix
@@ -307,26 +307,26 @@ fn build_patterns() -> HashSet<([u8; 4], [u8; 4])> {
         .chain(TEAM_WORDS.iter())
         .copied()
         .collect();
-    let all_pfx: Vec<String> = all_words.iter().flat_map(|w| leet_expand(w, true)).collect();
-    let all_sfx: Vec<String> = all_words.iter().flat_map(|w| leet_expand(w, false)).collect();
+    let all_pfx: Vec<String> = all_words.iter().flat_map(|w| leet_expand(w)).collect();
+    let all_sfx: Vec<String> = all_words.iter().flat_map(|w| leet_expand(w)).collect();
 
     // First names × all words (both directions)
     for name in ALL_FIRST_NAMES {
         for form in name.prefix_forms {
-            cross_into(&mut patterns, &leet_expand(form, true), &all_sfx);
+            cross_into(&mut patterns, &leet_expand(form), &all_sfx);
         }
         for form in name.suffix_forms {
-            cross_into(&mut patterns, &all_pfx, &leet_expand(form, false));
+            cross_into(&mut patterns, &all_pfx, &leet_expand(form));
         }
     }
 
     // Last names × all words (both directions)
     for name in LAST_NAMES_WITH_WORDS {
         for form in name.prefix_forms {
-            cross_into(&mut patterns, &leet_expand(form, true), &all_sfx);
+            cross_into(&mut patterns, &leet_expand(form), &all_sfx);
         }
         for form in name.suffix_forms {
-            cross_into(&mut patterns, &all_pfx, &leet_expand(form, false));
+            cross_into(&mut patterns, &all_pfx, &leet_expand(form));
         }
     }
 
@@ -372,7 +372,7 @@ fn main() {
                 .takes_value(true)
                 .default_value("fused-bip32")
                 .possible_values(&pbkdf2_values)
-                .help("PBKDF2 implementation: ring (BoringSSL asm), commoncrypto (macOS), soft (pure Rust)"),
+                .help("PBKDF2 implementation: fused-bip32, fused, ring (BoringSSL asm), commoncrypto (macOS), soft (pure Rust)"),
         )
         .get_matches();
 
