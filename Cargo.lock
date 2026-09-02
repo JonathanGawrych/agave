@@ -8690,6 +8690,7 @@ dependencies = [
  "clap 3.2.23",
  "dirs-next",
  "ed25519-dalek-bip32",
+ "hidapi",
  "hmac 0.12.1",
  "num_cpus",
  "ring",
@@ -8709,6 +8710,7 @@ dependencies = [
  "solana-version",
  "tempfile",
  "tiny-bip39",
+ "uriparse",
 ]
 
 [[package]]

@@ -1,0 +1,387 @@
+# Vanity word bank. Curate this list, then save and close to continue.
+#
+# RULES
+#   * Words are matched at their REAL length. 3-letter words match 3 characters,
+#     4-letter words match 4. Nothing is truncated or padded.
+#   * base58 only: 0 O I l are NOT valid characters.
+#     Write O as o, I as i, and l as L.  GOLD -> GoLD, KING -> KiNG
+#   * Every word is tried as both a prefix and a suffix.
+#   * Delete or `#`-comment any word you don't want.
+#
+# LEET VARIANTS are generated automatically (a4 b8 e3 g6 i1 s5 t7 z2), matched
+# case-insensitively, and the first character is never substituted. So BEST also
+# matches B3ST BE5T BES7 B35T B3S7 BE57 B357, and Paws also matches P4ws Paw5
+# P4w5. A word with no substitutable letters after the first (GoLD, DoNG, Bun)
+# generates no variants.
+#
+# WORD LENGTH AND HIT VOLUME
+#   A 3-letter word is ~180x more likely to hit than a 4-letter one:
+#     FUR   as suffix ~27 min,     as prefix ~16 min   (1 device @15/s)
+#     GoLD  as suffix ~52 hr,      as prefix ~30 hr
+#   Adding 3-letter words does NOT slow down 4-letter discovery. The scan rate
+#   is fixed and every key is checked against everything, so it only adds
+#   registry lines. The registry records match_len, so you filter later:
+#     jq 'select(.match_len>=4)' registry.jsonl
+#   A *specific* 4-letter word is expensive (30-50 hr). The ~11 min figure for
+#   "any 4-letter hit" only holds because ~140 of them are matched at once, so
+#   keep the 4-letter list broad.
+#
+# WHY SOME WORDS ONLY EVER LAND AT THE END
+#   A base58 address's first character is not uniform: 2-9 and A-H are 5.90%
+#   each, J is 1.43%, and K-Z / a-z are 0.10% each (59x rarer). So a word like
+#   KiNG is tried as a prefix but will realistically only ever appear as a
+#   suffix. Nothing to do about it, just don't be surprised.
+
+
+# ============================================================
+# 3-LETTER  (each one added is a big jump in 3-char hit volume)
+# ============================================================
+JoN
+SG1
+Bun
+Bny
+Fur
+
+# ============================================================
+# 4-LETTER
+# ============================================================
+
+# furry:
+Tibb
+Tibt
+Tbit
+Tibs
+Tiby
+Bunn
+Buny
+BunE
+Buns
+Bunz
+Bnny
+Boop
+Paws
+Ears
+Fuzz
+Furr
+Hops
+Hare
+Thmp
+Lops
+Rabt
+
+
+### POSITIVE
+BEST
+BoLD
+CASH
+CoDE
+CooL
+DANK
+DEAD
+DEEP
+DEVS
+DUDE
+DoPE
+EPiC
+EViL
+FAST
+FLEX
+FUNK
+FiLL
+FiRE
+GEEK
+GURU
+GoAT
+GoLD
+GoLF
+HACK
+HARD
+HERo
+HiGH
+HoDL
+HoLY
+JERK
+KiNG
+LoCK
+LoRD
+LoUD
+LoVE
+MARK
+MASS
+MiNE
+NERD
+NUKE
+PEAK
+PUNK
+PURE
+RAGE
+RARE
+RUNS
+RUST
+RiCH
+SAGE
+STUD
+SUDo
+SWAG
+SoLo
+TALL
+ViBE
+VoiD
+WiNS
+WiSE
+YEET
+YoLo
+
+### ROAST
+ANAL
+BANG
+BRRR
+BRUH
+BUTT
+BoMB
+BoNE
+BoNK
+BooB
+CRAP
+CoCK
+DAMN
+DUMB
+DiCK
+DiLF
+DoNG
+DoRK
+FUCK
+FooL
+HATE
+HELL
+KiLL
+LMAo
+NUDE
+NUTS
+PAiN
+PoRN
+SEXY
+SHiT
+SLUT
+SUCK
+TiTS
+WANG
+ooPS
+Kink
+Smut
+Lewd
+Lust
+nsfw
+bred
+hump
+bare
+naky
+bite
+bttm
+cake
+rump
+thic
+
+### SELF / TEAM
+ETHR
+FUSE
+GAWR
+
+### HOLLOW KNIGHT
+DUNG
+GRiM
+NEST
+NiTE
+NoSK
+PALE
+PATH
+SHAW
+STAG
+SiLK
+SoAR
+SoNG
+SoUL
+TEAR
+WYRM
+ZoTE
+
+
+# ============================================================
+# SUGGESTIONS. Uncomment any you want. All base58-valid.
+# ============================================================
+
+### ETHERFUSE / DOMAIN
+GAiN
+
+### STARGATE
+JAFA
+KREE
+TEAL
+ZATS
+REPL      # replicator, and the eng meaning
+STAR
+
+### MORE HOLLOW KNIGHT
+GRUB
+GRUZ
+
+### ENGINEERING
+SHiP
+
+### CRYPTO
+BULL
+MooN
+PUMP
+FoMo
+SAFU
+WAGM      # wagmi
+
+
+# ============================================================
+# MORE SUGGESTIONS. Uncomment any you want. All validated base58.
+# ============================================================
+
+### BUNNY / RABBIT  (to go with Bun / Hare / Hops / Lops / Thmp / Rabt)
+#Loaf      # the bunny loaf position
+#Bnky      # binky, the happy hop
+#Bink
+#FLop      # the bunny flop
+#Warr      # warren
+Burr      # burrow
+#Cony      # archaic word for rabbit
+#Wabb      # wabbit
+#Kits      # baby rabbits
+#Bnns
+#NibL      # nibble
+#Munc      # munch
+#Chew
+#Carr      # carrot
+#Crrt
+#Hays
+#Digs
+#Zoom
+Thum
+Hopp
+#Leap
+#Whsk      # whiskers
+#Twch      # twitch
+#Snif
+#Snoo      # snoot
+TaiL
+#Nose
+#Toes
+#Feet
+#Puff
+#Poof
+#Snug
+#Cozy
+Cute
+#Soft
+Pets
+Hugs
+Bugs      # Bugs Bunny, and the eng meaning
+#VeLv      # the Velveteen Rabbit
+
+### FURRY
+#Murr
+Awoo
+#Nuzz
+#BLep
+#MLem
+#Boop      # already active above
+#Purr
+#Muzz      # muzzle
+#Snut      # snout
+Pawz
+#CLaw
+FLuf
+#Mane
+#PeLt
+#Coat
+#Horn
+#Yote      # coyote
+#WoLf
+#Foxx
+#Vixn      # vixen
+#ottr      # otter
+#Sknk
+#Deer
+#Hyna      # hyena
+#Drgn      # dragon
+#Wyvr      # wyvern
+#Grif      # griffin
+#ScaL
+Yiff
+
+### 3-LETTER
+#Fur       # already active above
+#Bun       # already active above
+#Paw
+#Ear
+#Hop
+#Kit
+#Tod       # a male fox
+#Fox
+oWo
+UWU
+#ZPM       # zero point module
+#SGC       # Stargate Command
+#oRi       # the Ori
+#NoX       # the Nox
+#DHD       # dial home device
+#ZAT
+#GEo       # Hollow Knight currency
+#SLY
+#ZoT
+#oRB       # the anime
+
+### MORE STARGATE
+#RiNG      # ring transporter
+#NAQD      # naquadah
+#CHEV      # chevron
+#CART      # Carter
+#ATLA      # Atlantis
+#PEGA      # Pegasus
+#WRTH      # wraith
+#ToKR      # Tok'ra
+#ASGD      # Asgard
+#UNAS
+#HAMD      # Hammond
+
+### MORE HOLLOW KNIGHT
+#HoRN      # Hornet
+#HUSK
+#HiVE
+#MASK
+#TRAM
+#SHDE      # shade
+#ELDR      # elderbug
+#ABYS      # abyss
+#DiRT      # dirtmouth
+#HALL      # hallownest
+#QUiR      # quirrel
+#MANT      # mantis
+#LACE
+#BELL
+#HART
+#VESS
+#MooR
+#NAiL
+#WiNG
+#WoRM
+#MoTH
+#LoST
+
+### ANIME
+#oRB       # Orb: On the Movements of the Earth
+KiRA      # Death Note
+#NoTE      # Death Note
+SoMA      # Shokugeki
+WEEB
+BAKA
+NANi
+#ANME
+#MECH
+#iSEK      # isekai
+SENP      # senpai
+#oTAK      # otaku
