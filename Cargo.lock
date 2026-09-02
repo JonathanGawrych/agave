@@ -8688,13 +8688,19 @@ dependencies = [
  "agave-votor-messages",
  "bs58",
  "clap 3.2.23",
+ "data-encoding",
  "dirs-next",
  "ed25519-dalek-bip32",
+ "hex",
+ "hidapi",
  "hmac 0.12.1",
+ "libsecp256k1",
  "num_cpus",
+ "rayon",
  "ring",
  "serde_json",
  "sha2 0.10.9",
+ "sha3",
  "solana-bls-signatures",
  "solana-clap-v3-utils",
  "solana-cli-config",
@@ -8709,6 +8715,7 @@ dependencies = [
  "solana-version",
  "tempfile",
  "tiny-bip39",
+ "uriparse",
 ]
 
 [[package]]
